@@ -1,0 +1,56 @@
+site_name: Topolab Go SDK
+site_description: Official Go client for the Topolab dataset and geospatial API.
+site_url: https://topolab-bv.github.io/topolab-go/
+repo_url: https://github.com/topolab-bv/topolab-go
+repo_name: topolab-bv/topolab-go
+edit_uri: edit/main/docs/
+copyright: © Topolab B.V.
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+  - tables
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/topolab-bv
+  generator: false
+
+nav:
+  - Overview: index.md
+  - Guide: guide.md
+  - Errors: errors.md
+  - API reference: reference.md

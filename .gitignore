@@ -1,0 +1,10 @@
+# mkdocs build output
+site/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# editor / OS
+.DS_Store
