@@ -221,7 +221,7 @@ func (d *Dataset) IterItems(ctx context.Context, opts *IterOptions) iter.Seq2[*F
 
 // ItemsAll fetches every matching feature into one FeatureCollection. It reads
 // the first page (which reports numberMatched), then fetches the remaining pages
-// concurrently (unless Parallel is false). Honours TotalLimit.
+// concurrently unless IterOptions.Sequential is set. Honours TotalLimit.
 func (d *Dataset) ItemsAll(ctx context.Context, opts *IterOptions) (*FeatureCollection, error) {
 	pageSize := 100
 	parallel := true

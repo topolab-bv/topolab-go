@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="Topolab">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1D4ED8"/>
+      <stop offset="55%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <pattern id="dot" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.1" fill="#fff" fill-opacity="0.18"/>
+    </pattern>
+    <clipPath id="cl"><rect width="1200" height="300"/></clipPath>
+  </defs>
+  <g clip-path="url(#cl)">
+    <rect width="1200" height="300" fill="url(#bg)"/>
+    <g opacity="0.12" fill="none" stroke="#fff" stroke-width="1.5">
+      <circle cx="360" cy="120" r="19"/><circle cx="360" cy="120" r="38"/><circle cx="360" cy="120" r="57"/><circle cx="360" cy="120" r="76"/><circle cx="360" cy="120" r="95"/><circle cx="360" cy="120" r="114"/><circle cx="360" cy="120" r="133"/><circle cx="360" cy="120" r="152"/><circle cx="360" cy="120" r="171"/><circle cx="360" cy="120" r="190"/><circle cx="360" cy="120" r="209"/><circle cx="360" cy="120" r="228"/><circle cx="360" cy="120" r="247"/><circle cx="360" cy="120" r="266"/><circle cx="360" cy="120" r="285"/><circle cx="360" cy="120" r="304"/><circle cx="360" cy="120" r="323"/><circle cx="360" cy="120" r="342"/><circle cx="360" cy="120" r="361"/><circle cx="360" cy="120" r="380"/><circle cx="360" cy="120" r="399"/><circle cx="360" cy="120" r="418"/><circle cx="360" cy="120" r="437"/><circle cx="360" cy="120" r="456"/><circle cx="360" cy="120" r="475"/><circle cx="360" cy="120" r="494"/><circle cx="360" cy="120" r="513"/><circle cx="360" cy="120" r="532"/><circle cx="360" cy="120" r="551"/><circle cx="360" cy="120" r="570"/><circle cx="360" cy="120" r="589"/><circle cx="360" cy="120" r="608"/><circle cx="360" cy="120" r="627"/><circle cx="360" cy="120" r="646"/><circle cx="360" cy="120" r="665"/><circle cx="360" cy="120" r="684"/><circle cx="360" cy="120" r="703"/><circle cx="360" cy="120" r="722"/><circle cx="360" cy="120" r="741"/><circle cx="360" cy="120" r="760"/><circle cx="360" cy="120" r="779"/><circle cx="360" cy="120" r="798"/><circle cx="360" cy="120" r="817"/><circle cx="360" cy="120" r="836"/><circle cx="360" cy="120" r="855"/><circle cx="360" cy="120" r="874"/>
+    </g>
+    <rect x="744" y="0" width="456" height="300" fill="url(#dot)"/>
+    <g transform="translate(96,110) scale(2.5)">
+      <path d="M14 0 L28 8 L28 24 L14 32 L0 24 L0 8 Z" fill="#fff"/>
+      <path d="M14 7 L23 12 L14 17 L5 12 Z" fill="#1E3A8A"/>
+      <path d="M5 16 L14 21 L23 16" stroke="#1E3A8A" stroke-width="1.3" fill="none"/>
+      <path d="M5 20 L14 25 L23 20" stroke="#1E3A8A" stroke-width="1.3" fill="none"/>
+    </g>
+    <text x="194" y="138" font-family="Fraunces, Georgia, serif" font-weight="600" font-size="84" letter-spacing="-1.2" fill="#fff">Topolab</text>
+    <text x="197" y="188" font-family="Inter, sans-serif" font-weight="500" font-size="27" fill="#fff" fill-opacity="0.92">Official Go client for the Topolab geospatial API</text>
+  </g>
+</svg>

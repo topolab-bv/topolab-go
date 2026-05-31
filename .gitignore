@@ -8,3 +8,6 @@ coverage.txt
 
 # editor / OS
 .DS_Store
+
+# stray go-build binary from `go build ./examples/quickstart` at repo root
+/quickstart
