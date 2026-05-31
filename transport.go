@@ -3,7 +3,6 @@ package topolab
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -120,13 +119,4 @@ func parseRetryAfter(h http.Header) time.Duration {
 		}
 	}
 	return 0
-}
-
-// asError unwraps any error to a *Error, wrapping unknowns as KindConnection.
-func asError(err error) *Error {
-	var e *Error
-	if errors.As(err, &e) {
-		return e
-	}
-	return &Error{Kind: KindConnection, Message: err.Error()}
 }
