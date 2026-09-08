@@ -16,15 +16,27 @@ jobs:
         go: ["1.23", "1.24"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: topolab-go
+      # Golden fixtures are shared across the SDKs; the tests read them from the
+      # spec repo checked out as a sibling directory.
+      - uses: actions/checkout@v4
+        with:
+          repository: topolab-bv/topolab-sdk-spec
+          path: topolab-sdk-spec
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
       - name: gofmt
+        working-directory: topolab-go
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: vet
+        working-directory: topolab-go
         run: go vet ./...
       - name: test
+        working-directory: topolab-go
         run: go test -race ./...
       - name: build
+        working-directory: topolab-go
         run: go build ./...

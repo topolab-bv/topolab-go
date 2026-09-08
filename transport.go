@@ -1,6 +1,7 @@
 package topolab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -25,6 +26,14 @@ type transport struct {
 // The caller owns resp.Body on a nil error. On status >= 400 the body is
 // consumed and a *Error is returned.
 func (t *transport) do(ctx context.Context, path string, query url.Values) (*http.Response, error) {
+	return t.doRequest(ctx, http.MethodGet, path, query, nil)
+}
+
+// doRequest performs one request, retrying transient failures. body, when
+// non-nil, is a JSON payload and is replayed on every attempt. The caller owns
+// resp.Body on a nil error; on status >= 400 the body is consumed and a *Error
+// is returned.
+func (t *transport) doRequest(ctx context.Context, method, path string, query url.Values, body []byte) (*http.Response, error) {
 	u := t.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -32,13 +41,20 @@ func (t *transport) do(ctx context.Context, path string, query url.Values) (*htt
 
 	var lastErr error
 	for attempt := 0; attempt <= t.maxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		var payload io.Reader
+		if body != nil {
+			payload = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u, payload)
 		if err != nil {
 			return nil, &Error{Kind: KindConfiguration, Message: err.Error()}
 		}
 		req.Header.Set("X-API-Key", t.apiKey)
 		req.Header.Set("User-Agent", t.userAgent)
 		req.Header.Set("Accept", "application/json")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 
 		resp, err := t.httpClient.Do(req)
 		if err != nil {
@@ -78,6 +94,24 @@ func (t *transport) getJSON(ctx context.Context, path string, query url.Values, 
 	if err != nil {
 		return err
 	}
+	return decodeJSON(resp, v)
+}
+
+// postJSON performs a POST with a JSON payload and decodes the JSON body into v.
+func (t *transport) postJSON(ctx context.Context, path string, payload, v any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return &Error{Kind: KindValidation, Message: "encoding request: " + err.Error()}
+	}
+	resp, err := t.doRequest(ctx, http.MethodPost, path, nil, body)
+	if err != nil {
+		return err
+	}
+	return decodeJSON(resp, v)
+}
+
+// decodeJSON decodes resp into v and closes the body.
+func decodeJSON(resp *http.Response, v any) error {
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		return &Error{Kind: KindServer, Message: "decoding response: " + err.Error()}

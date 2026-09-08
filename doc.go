@@ -16,10 +16,32 @@
 //		BBox:  []float64{4.7, 52.2, 5.1, 52.5},
 //	})
 //
-// The API key carries your scope and add-ons: spatial queries need GIS_ACCESS,
-// downloads need API_ACCESS, and data routes require an organization-scoped key.
+// The API key carries your scope and add-ons: spatial queries need the
+// gis-access add-on, downloads need api-access, and data routes require an
+// organization-scoped key.
 // The key is read from the WithAPIKey option or the TOPOLAB_API_KEY environment
 // variable.
+//
+// # Pulling what you own
+//
+// The integration loop the SDK is built for needs no hard-coded slugs: list the
+// datasets the organization licences, then pull each one's newest archive.
+//
+//	for d, err := range tl.Datasets.IterOwned(ctx, nil) {
+//		if err != nil {
+//			log.Fatal(err)
+//		}
+//		if err := tl.Dataset(d.Table).Archive(ctx, d.Table+".zip", "latest", "geojson"); err != nil {
+//			log.Fatal(err)
+//		}
+//	}
+//
+// [DatasetsService.Owned] is authoritative — it is filtered by the same licence
+// check the download routes enforce, so everything it returns is downloadable.
+// [Dataset.Archives] lists the months inside your retention window, and
+// [Dataset.Archive] addresses one by "latest", "YYYY-MM" or "YYYY-MM-DD".
+// [Client.SQL] runs a read-only query across the datasets you licence
+// (Enterprise sql-access entitlement).
 //
 // # Environments
 //

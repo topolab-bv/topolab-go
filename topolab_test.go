@@ -193,19 +193,91 @@ func TestItemsAllParallel(t *testing.T) {
 	}
 }
 
+// Add-on identifiers are hyphenated slugs, and the requirement reaches the
+// client in two message shapes. Both must normalise to the same slug.
 func TestAddonRequiredError(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{
+			"endpoint shape",
+			"This endpoint requires the api-access add-on",
+			"api-access",
+		},
+		{
+			"archive shape",
+			"Archive access requires the Archived Data add-on. Please upgrade to access historical data.",
+			"archived-data",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, 403, map[string]any{"code": 403, "message": tc.message})
+			}))
+			defer srv.Close()
+
+			_, err := newClient(t, srv).Dataset("nl-domino-poi").ToGeoJSON(context.Background())
+			if !errors.Is(err, topolab.ErrAddonRequired) {
+				t.Fatalf("want ErrAddonRequired, got %v", err)
+			}
+			var apiErr *topolab.Error
+			if !errors.As(err, &apiErr) || apiErr.Addon != tc.want {
+				t.Fatalf("addon = %q, want %q", apiErr.Addon, tc.want)
+			}
+		})
+	}
+}
+
+// A 403 that names no add-on is an access denial, not an add-on requirement.
+func TestForbiddenWithoutAddonIsAccessDenied(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 403, map[string]any{"statusCode": 403, "message": "This endpoint requires the API_ACCESS add-on", "error": "Forbidden"})
+		writeJSON(w, 403, map[string]any{"code": 403, "message": "You do not have access to this dataset"})
 	}))
 	defer srv.Close()
 
 	_, err := newClient(t, srv).Dataset("nl-domino-poi").ToGeoJSON(context.Background())
-	if !errors.Is(err, topolab.ErrAddonRequired) {
-		t.Fatalf("want ErrAddonRequired, got %v", err)
+	if !errors.Is(err, topolab.ErrAccessDenied) {
+		t.Fatalf("want ErrAccessDenied, got %v", err)
 	}
-	var apiErr *topolab.Error
-	if !errors.As(err, &apiErr) || apiErr.Addon != "API_ACCESS" {
-		t.Fatalf("addon not parsed: %+v", apiErr)
+}
+
+// The engine envelope has no statusCode field: mapping branches on the HTTP
+// status, and the request id falls back to the body when the header is absent.
+func TestErrorEnvelopeUsesHTTPStatusAndRequestID(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"header absent", "", "from-body"},
+		{"header wins", "from-header", "from-header"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.header != "" {
+					w.Header().Set("X-Request-Id", tc.header)
+				}
+				// A misleading body: only the HTTP status may be trusted.
+				writeJSON(w, 404, map[string]any{
+					"code": 200, "message": "not found", "requestId": "from-body",
+					"path": "/v1/dataset/nope", "method": "GET", "time": "2026-09-08T23:41:46.748Z",
+				})
+			}))
+			defer srv.Close()
+
+			_, err := newClient(t, srv).Dataset("nope").Metadata(context.Background(), "")
+			if !errors.Is(err, topolab.ErrNotFound) {
+				t.Fatalf("want ErrNotFound from the HTTP status, got %v", err)
+			}
+			var apiErr *topolab.Error
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != 404 || apiErr.RequestID != tc.want {
+				t.Fatalf("unexpected error: %+v", apiErr)
+			}
+		})
 	}
 }
 

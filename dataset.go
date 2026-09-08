@@ -2,14 +2,17 @@ package topolab
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"iter"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -54,7 +57,7 @@ func (d *Dataset) Sample(ctx context.Context, format string) ([]byte, error) {
 }
 
 // ToGeoJSON returns the full dataset as a FeatureCollection. Requires the
-// API_ACCESS add-on and consumes credits.
+// api-access add-on and consumes credits.
 func (d *Dataset) ToGeoJSON(ctx context.Context) (*FeatureCollection, error) {
 	var fc FeatureCollection
 	if err := d.t.getJSON(ctx, "/v1/dataset/"+d.Slug+"/files/geojson", nil, &fc); err != nil {
@@ -74,12 +77,20 @@ func (d *Dataset) Download(ctx context.Context, path, format string) error {
 	if !bulkFormats[format] {
 		return &Error{Kind: KindValidation, Message: "download format must be one of csv, json, geojson, kml, shp"}
 	}
+	return d.streamToFile(ctx, "/v1/dataset/"+d.Slug+"/files/"+format, path)
+}
+
+// streamToFile GETs apiPath and streams the response body to path. The
+// destination directory is created if needed; the body streams to a temp file
+// that is renamed atomically, so an interrupted transfer never leaves a
+// truncated file at path.
+func (d *Dataset) streamToFile(ctx context.Context, apiPath, path string) error {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return &Error{Kind: KindConnection, Message: err.Error()}
 		}
 	}
-	resp, err := d.t.do(ctx, "/v1/dataset/"+d.Slug+"/files/"+format, nil)
+	resp, err := d.t.do(ctx, apiPath, nil)
 	if err != nil {
 		return err
 	}
@@ -102,6 +113,136 @@ func (d *Dataset) Download(ctx context.Context, path, format string) error {
 		return &Error{Kind: KindConnection, Message: err.Error()}
 	}
 	return nil
+}
+
+// Archives lists the dataset's monthly archives, newest month first. The
+// listing already reflects the organization's retention window — Team plans see
+// a trailing 12 months, Enterprise and full-history add-ons see everything — so
+// it never lists a month that would 404. It is free: no credits are charged.
+func (d *Dataset) Archives(ctx context.Context) ([]Archive, error) {
+	var archives []Archive
+	if err := d.t.getJSON(ctx, "/v1/dataset/"+d.Slug+"/archives/list", nil, &archives); err != nil {
+		return nil, err
+	}
+	return archives, nil
+}
+
+// Archive streams one monthly archive (a zip) to path. month accepts three
+// forms — "latest" (case-insensitive; the newest archive inside the retention
+// window), "YYYY-MM" (that month), and "YYYY-MM-DD" (the month containing that
+// date); an empty month means "latest". format is one of csv, json, geojson,
+// kml, shp; empty defaults to geojson.
+//
+// The month is validated as a real calendar value before the request is sent,
+// so an impossible month ("2026-13", "2026-02-29") fails locally instead of
+// costing a round trip and a credit. Server-side, a malformed or impossible
+// month is a 400 (ErrValidation) while a well-formed month with no archive
+// available is a 404 (ErrNotFound) — months outside the retention window and
+// months that have not started are deliberately indistinguishable from one
+// another.
+//
+// Like Download, the archive streams to a temp file and is renamed atomically.
+func (d *Dataset) Archive(ctx context.Context, path, month, format string) error {
+	if format == "" {
+		format = "geojson"
+	}
+	if !bulkFormats[format] {
+		return &Error{Kind: KindValidation, Message: "archive format must be one of csv, json, geojson, kml, shp"}
+	}
+	m, err := normaliseArchiveMonth(month)
+	if err != nil {
+		return err
+	}
+	return d.streamToFile(ctx, "/v1/dataset/"+d.Slug+"/archives/"+m+"/"+format, path)
+}
+
+// normaliseArchiveMonth validates a month and returns its wire form. It accepts
+// "latest" case-insensitively, "YYYY-MM" and "YYYY-MM-DD"; time.Parse rejects
+// impossible calendar values natively, so 2026-13, 2026-07-99 and 2026-02-29
+// are refused while 2024-02-29 is accepted.
+func normaliseArchiveMonth(month string) (string, error) {
+	m := strings.TrimSpace(month)
+	if m == "" || strings.EqualFold(m, "latest") {
+		return "latest", nil
+	}
+	for _, layout := range []string{"2006-01", "2006-01-02"} {
+		if _, err := time.Parse(layout, m); err == nil {
+			return m, nil
+		}
+	}
+	return "", &Error{Kind: KindValidation, Message: "archive month " + strconv.Quote(month) + ` must be "latest", YYYY-MM or YYYY-MM-DD, and a real calendar month or date`}
+}
+
+// CoordinatesOptions paginates the coordinates listing. The zero value asks for
+// the whole dataset in one response, which the server caps at 50000 rows.
+type CoordinatesOptions struct {
+	Limit  int // 1–50000, 0 leaves it to the server
+	Offset int // >= 0
+}
+
+func (o *CoordinatesOptions) query() (url.Values, error) {
+	q := url.Values{}
+	if o == nil {
+		return q, nil
+	}
+	if o.Limit < 0 || o.Limit > 50000 {
+		return nil, &Error{Kind: KindValidation, Message: "coordinates limit must be between 1 and 50000"}
+	}
+	if o.Offset < 0 {
+		return nil, &Error{Kind: KindValidation, Message: "coordinates offset must not be negative"}
+	}
+	if o.Limit > 0 {
+		q.Set("limit", strconv.Itoa(o.Limit))
+	}
+	if o.Offset > 0 {
+		q.Set("offset", strconv.Itoa(o.Offset))
+	}
+	return q, nil
+}
+
+// Coordinates returns one page of coordinate rows with their attribute bags.
+// The response body is a bare JSON array and the paging facts arrive in the
+// X-Total-Count, X-Returned-Count and X-Offset headers, which CoordinatePage
+// carries alongside the rows. Missing or unparseable headers are not an error:
+// Total and Returned fall back to the number of rows decoded and Offset to 0.
+//
+// Requires the api-access add-on and consumes credits.
+func (d *Dataset) Coordinates(ctx context.Context, opts *CoordinatesOptions) (*CoordinatePage, error) {
+	q, err := opts.query()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := d.t.do(ctx, "/v1/dataset/"+d.Slug+"/coordinates", q)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rows []CoordinateRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, &Error{Kind: KindServer, Message: "decoding response: " + err.Error()}
+	}
+	page := &CoordinatePage{
+		Rows:     rows,
+		Total:    headerInt(resp.Header, "X-Total-Count", len(rows)),
+		Returned: headerInt(resp.Header, "X-Returned-Count", len(rows)),
+		Offset:   headerInt(resp.Header, "X-Offset", 0),
+	}
+	return page, nil
+}
+
+// headerInt reads an integer header, returning fallback when it is absent or
+// not a number — paging metadata must never turn a good response into an error.
+func headerInt(h http.Header, name string, fallback int) int {
+	v := strings.TrimSpace(h.Get(name))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 // ItemsOptions are query parameters for a single page of OGC features. BBox, if

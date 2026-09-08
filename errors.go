@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // Kind classifies a Topolab API error. Match it with errors.Is against the
@@ -18,6 +19,7 @@ const (
 	KindAccessDenied       Kind = "access_denied"
 	KindInsufficientCredit Kind = "insufficient_credits"
 	KindNotFound           Kind = "not_found"
+	KindQueryTimeout       Kind = "query_timeout"
 	KindRateLimit          Kind = "rate_limit"
 	KindValidation         Kind = "validation"
 	KindServer             Kind = "server"
@@ -36,7 +38,7 @@ type Error struct {
 	Message    string // server-supplied message
 	RequestID  string // x-request-id, if present
 
-	Addon      string  // KindAddonRequired: required add-on (API_ACCESS / GIS_ACCESS)
+	Addon      string  // KindAddonRequired: required add-on slug (api-access, archived-data, …)
 	RetryAfter float64 // KindRateLimit: seconds to wait (0 if unknown)
 	Required   int     // KindInsufficientCredit
 	Available  int     // KindInsufficientCredit
@@ -64,19 +66,33 @@ var (
 	ErrAccessDenied       = &Error{Kind: KindAccessDenied}
 	ErrInsufficientCredit = &Error{Kind: KindInsufficientCredit}
 	ErrNotFound           = &Error{Kind: KindNotFound}
+	ErrQueryTimeout       = &Error{Kind: KindQueryTimeout}
 	ErrRateLimit          = &Error{Kind: KindRateLimit}
 	ErrValidation         = &Error{Kind: KindValidation}
 	ErrServer             = &Error{Kind: KindServer}
 	ErrConnection         = &Error{Kind: KindConnection}
 )
 
-var addonRe = regexp.MustCompile(`(?i)requires the (\w+) add-?on`)
+// addonRe extracts the add-on from a 403 message. Add-on identifiers are
+// hyphenated slugs, and the requirement is phrased two ways — "requires the
+// api-access add-on" and "requires the Archived Data add-on." — so the capture
+// is lazy and unrestricted, then normalised by normaliseAddon.
+var addonRe = regexp.MustCompile(`(?i)requires the (.+?) add-?on`)
 
-// errorBody is the shape of a Topolab JSON error response.
+// normaliseAddon turns a captured add-on name into its canonical slug:
+// "api-access" and "Archived Data" both yield the hyphenated lower-case form.
+func normaliseAddon(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), "-")
+}
+
+// errorBody is the shape of a Topolab JSON error response:
+// {code, message, path, method, time, requestId}. There is no statusCode field,
+// and the body's code merely mirrors the HTTP status, so it is deliberately not
+// decoded: mapping always branches on the HTTP status, never on the body.
 type errorBody struct {
 	Message    string   `json:"message"`
 	Error      string   `json:"error"`
-	StatusCode int      `json:"statusCode"`
+	RequestID  string   `json:"requestId"`
 	RetryAfter *float64 `json:"retryAfter"`
 	Details    struct {
 		Required  int `json:"required"`
@@ -93,7 +109,12 @@ func errorFromResponse(status int, body errorBody, header http.Header) *Error {
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
-	e := &Error{StatusCode: status, Message: msg, RequestID: header.Get("x-request-id")}
+	// The request id is the X-Request-Id header, falling back to the body.
+	requestID := header.Get("x-request-id")
+	if requestID == "" {
+		requestID = body.RequestID
+	}
+	e := &Error{StatusCode: status, Message: msg, RequestID: requestID}
 
 	switch {
 	case status == http.StatusUnauthorized:
@@ -105,12 +126,14 @@ func errorFromResponse(status int, body errorBody, header http.Header) *Error {
 	case status == http.StatusForbidden:
 		if m := addonRe.FindStringSubmatch(msg); m != nil {
 			e.Kind = KindAddonRequired
-			e.Addon = m[1]
+			e.Addon = normaliseAddon(m[1])
 		} else {
 			e.Kind = KindAccessDenied
 		}
 	case status == http.StatusNotFound:
 		e.Kind = KindNotFound
+	case status == http.StatusRequestTimeout:
+		e.Kind = KindQueryTimeout
 	case status == http.StatusTooManyRequests:
 		e.Kind = KindRateLimit
 		e.RetryAfter = retryAfterSeconds(body, header)

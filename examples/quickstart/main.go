@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 
 	topolab "github.com/topolab-bv/topolab-go"
 )
@@ -40,4 +41,28 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("all: %d features\n", len(all.Features))
+
+	// The integration loop: everything the organization licences, newest
+	// archive each. Needs no hard-coded slugs.
+	for d, err := range tl.Datasets.IterOwned(ctx, &topolab.IterOwnedOptions{TotalLimit: 3}) {
+		if err != nil {
+			log.Fatal(err)
+		}
+		if d.LatestArchiveMonth == nil {
+			fmt.Printf("%s: no archive in the retention window\n", d.Table)
+			continue
+		}
+		out := filepath.Join("archives", d.Table+".zip")
+		if err := tl.Dataset(d.Table).Archive(ctx, out, "latest", "geojson"); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s: archive %s -> %s\n", d.Table, *d.LatestArchiveMonth, out)
+	}
+
+	// Coordinates come back as a bare array; the paging facts are in headers.
+	coords, err := ds.Coordinates(ctx, &topolab.CoordinatesOptions{Limit: 100})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("coordinates: %d of %d rows\n", coords.Returned, coords.Total)
 }
