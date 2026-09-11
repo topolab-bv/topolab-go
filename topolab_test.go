@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	topolab "github.com/topolab-bv/topolab-go"
 )
@@ -298,6 +299,43 @@ func TestRateLimitRetries(t *testing.T) {
 	}
 	if hits != 2 {
 		t.Errorf("hits = %d, want 2 (1 retry)", hits)
+	}
+}
+
+// The API sends the retry delay in the response BODY as `retryAfter`, not in a
+// Retry-After header. parseRetryAfter used to read the header only, so the
+// server's backoff was silently discarded and every retry waited the full
+// exponential fallback instead.
+//
+// TestRateLimitRetries cannot catch that: it sends retryAfter: 0, which is
+// indistinguishable from "not honoured". This asserts on elapsed time instead —
+// backoffBase is 500ms and is not settable from outside, so a body value well
+// under that only produces a fast retry if the body is actually read.
+func TestRateLimitHonoursRetryAfterFromBody(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			writeJSON(w, 429, map[string]any{"code": 429, "message": "slow down", "retryAfter": 0.05})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": "uuid-1", "table": "nl-domino-poi"})
+	}))
+	defer srv.Close()
+
+	c, _ := topolab.New(topolab.WithAPIKey(apiKey), topolab.WithBaseURL(srv.URL), topolab.WithMaxRetries(2))
+	start := time.Now()
+	if _, err := c.Dataset("nl-domino-poi").Metadata(context.Background(), ""); err != nil {
+		t.Fatalf("retry did not recover: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if hits != 2 {
+		t.Fatalf("hits = %d, want 2 (1 retry)", hits)
+	}
+	// 50ms requested vs a 500ms exponential fallback. Anything at or above the
+	// fallback means the body was ignored.
+	if elapsed >= 400*time.Millisecond {
+		t.Errorf("waited %v; the body's retryAfter (50ms) was ignored in favour of exponential backoff", elapsed)
 	}
 }
 

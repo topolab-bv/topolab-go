@@ -73,8 +73,7 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 		}
 
 		if retryStatus[resp.StatusCode] && attempt < t.maxRetries {
-			ra := parseRetryAfter(resp.Header)
-			resp.Body.Close()
+			ra := parseRetryAfter(resp)
 			if !t.sleep(ctx, t.backoff(attempt, ra)) {
 				return nil, &Error{Kind: KindConnection, Message: ctx.Err().Error()}
 			}
@@ -146,11 +145,26 @@ func (t *transport) sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-func parseRetryAfter(h http.Header) time.Duration {
-	if v := h.Get("retry-after"); v != "" {
-		if secs, err := time.ParseDuration(v + "s"); err == nil {
-			return secs
-		}
+// parseRetryAfter reports how long the server asked us to wait before retrying,
+// or 0 if it did not say.
+//
+// The value arrives in the response BODY as `retryAfter`, not in a Retry-After
+// header — see the 429 shape in topolab-sdk-spec. This used to read the header
+// only, so the server's backoff was always discarded and every retry fell back
+// to exponential backoff. It also consumes and closes the body, which the retry
+// path would otherwise throw away unread.
+//
+// The header is still honoured as a fallback, since it is the HTTP-standard
+// spelling and costs nothing to support.
+func parseRetryAfter(resp *http.Response) time.Duration {
+	defer resp.Body.Close()
+
+	var body errorBody
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = json.Unmarshal(data, &body)
+
+	if secs := retryAfterSeconds(body, resp.Header); secs > 0 {
+		return time.Duration(secs * float64(time.Second))
 	}
 	return 0
 }
