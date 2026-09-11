@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	topolab "github.com/topolab-bv/topolab-go"
 )
@@ -193,19 +194,91 @@ func TestItemsAllParallel(t *testing.T) {
 	}
 }
 
+// Add-on identifiers are hyphenated slugs, and the requirement reaches the
+// client in two message shapes. Both must normalise to the same slug.
 func TestAddonRequiredError(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{
+			"endpoint shape",
+			"This endpoint requires the api-access add-on",
+			"api-access",
+		},
+		{
+			"archive shape",
+			"Archive access requires the Archived Data add-on. Please upgrade to access historical data.",
+			"archived-data",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, 403, map[string]any{"code": 403, "message": tc.message})
+			}))
+			defer srv.Close()
+
+			_, err := newClient(t, srv).Dataset("nl-domino-poi").ToGeoJSON(context.Background())
+			if !errors.Is(err, topolab.ErrAddonRequired) {
+				t.Fatalf("want ErrAddonRequired, got %v", err)
+			}
+			var apiErr *topolab.Error
+			if !errors.As(err, &apiErr) || apiErr.Addon != tc.want {
+				t.Fatalf("addon = %q, want %q", apiErr.Addon, tc.want)
+			}
+		})
+	}
+}
+
+// A 403 that names no add-on is an access denial, not an add-on requirement.
+func TestForbiddenWithoutAddonIsAccessDenied(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 403, map[string]any{"statusCode": 403, "message": "This endpoint requires the API_ACCESS add-on", "error": "Forbidden"})
+		writeJSON(w, 403, map[string]any{"code": 403, "message": "You do not have access to this dataset"})
 	}))
 	defer srv.Close()
 
 	_, err := newClient(t, srv).Dataset("nl-domino-poi").ToGeoJSON(context.Background())
-	if !errors.Is(err, topolab.ErrAddonRequired) {
-		t.Fatalf("want ErrAddonRequired, got %v", err)
+	if !errors.Is(err, topolab.ErrAccessDenied) {
+		t.Fatalf("want ErrAccessDenied, got %v", err)
 	}
-	var apiErr *topolab.Error
-	if !errors.As(err, &apiErr) || apiErr.Addon != "API_ACCESS" {
-		t.Fatalf("addon not parsed: %+v", apiErr)
+}
+
+// The engine envelope has no statusCode field: mapping branches on the HTTP
+// status, and the request id falls back to the body when the header is absent.
+func TestErrorEnvelopeUsesHTTPStatusAndRequestID(t *testing.T) {
+	cases := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"header absent", "", "from-body"},
+		{"header wins", "from-header", "from-header"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.header != "" {
+					w.Header().Set("X-Request-Id", tc.header)
+				}
+				// A misleading body: only the HTTP status may be trusted.
+				writeJSON(w, 404, map[string]any{
+					"code": 200, "message": "not found", "requestId": "from-body",
+					"path": "/v1/dataset/nope", "method": "GET", "time": "2026-09-08T23:41:46.748Z",
+				})
+			}))
+			defer srv.Close()
+
+			_, err := newClient(t, srv).Dataset("nope").Metadata(context.Background(), "")
+			if !errors.Is(err, topolab.ErrNotFound) {
+				t.Fatalf("want ErrNotFound from the HTTP status, got %v", err)
+			}
+			var apiErr *topolab.Error
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != 404 || apiErr.RequestID != tc.want {
+				t.Fatalf("unexpected error: %+v", apiErr)
+			}
+		})
 	}
 }
 
@@ -226,6 +299,43 @@ func TestRateLimitRetries(t *testing.T) {
 	}
 	if hits != 2 {
 		t.Errorf("hits = %d, want 2 (1 retry)", hits)
+	}
+}
+
+// The API sends the retry delay in the response BODY as `retryAfter`, not in a
+// Retry-After header. parseRetryAfter used to read the header only, so the
+// server's backoff was silently discarded and every retry waited the full
+// exponential fallback instead.
+//
+// TestRateLimitRetries cannot catch that: it sends retryAfter: 0, which is
+// indistinguishable from "not honoured". This asserts on elapsed time instead —
+// backoffBase is 500ms and is not settable from outside, so a body value well
+// under that only produces a fast retry if the body is actually read.
+func TestRateLimitHonoursRetryAfterFromBody(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			writeJSON(w, 429, map[string]any{"code": 429, "message": "slow down", "retryAfter": 0.05})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"id": "uuid-1", "table": "nl-domino-poi"})
+	}))
+	defer srv.Close()
+
+	c, _ := topolab.New(topolab.WithAPIKey(apiKey), topolab.WithBaseURL(srv.URL), topolab.WithMaxRetries(2))
+	start := time.Now()
+	if _, err := c.Dataset("nl-domino-poi").Metadata(context.Background(), ""); err != nil {
+		t.Fatalf("retry did not recover: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if hits != 2 {
+		t.Fatalf("hits = %d, want 2 (1 retry)", hits)
+	}
+	// 50ms requested vs a 500ms exponential fallback. Anything at or above the
+	// fallback means the body was ignored.
+	if elapsed >= 400*time.Millisecond {
+		t.Errorf("waited %v; the body's retryAfter (50ms) was ignored in favour of exponential backoff", elapsed)
 	}
 }
 

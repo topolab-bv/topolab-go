@@ -60,8 +60,9 @@ func main() {
 }
 ```
 
-Your API key carries your scope and add-ons — spatial queries need `GIS_ACCESS`,
-downloads need `API_ACCESS`, and data routes require an organization-scoped key.
+Your API key carries your scope and add-ons — spatial queries need the
+`gis-access` add-on, downloads need `api-access`, and data routes require an
+organization-scoped key.
 Pass `WithAPIKey` or set `TOPOLAB_API_KEY`:
 
 ```go
@@ -81,6 +82,73 @@ Or set `TOPOLAB_ENV=staging`. An explicit `WithBaseURL` always wins. Precedence:
 `WithBaseURL` → `WithEnvironment` → `TOPOLAB_BASE_URL` → `TOPOLAB_ENV` → production.
 
 ## What you can do
+
+### Pull what you own (the integration loop)
+
+List everything your organization licences, then pull each dataset's newest
+monthly archive — no hard-coded slugs:
+
+```go
+for d, err := range tl.Datasets.IterOwned(ctx, nil) {
+	if err != nil {
+		return err
+	}
+	if d.LatestArchiveMonth == nil {
+		continue // nothing inside this plan's retention window
+	}
+	if err := tl.Dataset(d.Table).Archive(ctx, "archives/"+d.Table+".zip", "latest", "geojson"); err != nil {
+		return err
+	}
+}
+```
+
+`Owned` is authoritative — it is filtered by the same licence check the download
+routes enforce — and each entry carries absolute `Links` to its current file and
+archives. One page at a time:
+
+```go
+page, _ := tl.Datasets.Owned(ctx, &topolab.OwnedOptions{Limit: 200})
+fmt.Println(page.Total) // every licensed dataset, not the size of this page
+```
+
+### Monthly archives
+
+```go
+archives, _ := ds.Archives(ctx)                              // newest month first
+_ = ds.Archive(ctx, "ds.zip", "latest", "geojson")           // newest in your window
+_ = ds.Archive(ctx, "ds-07.zip", "2026-07", "csv")           // that month
+_ = ds.Archive(ctx, "ds-07.zip", "2026-07-15", "csv")        // the month containing that date
+```
+
+Months are validated as real calendar values before the request is sent, so
+`2026-13`, `2026-07-99` and `2026-02-29` fail locally with `ErrValidation`
+(`2024-02-29` is a leap day and passes). Server-side a malformed month is a
+**400**, while a well-formed month with no archive available is a **404** — as
+are months outside your retention window and months that have not started, which
+are deliberately indistinguishable. Team plans see a trailing 12 months;
+Enterprise and full-history add-ons see everything, and `Archives` already
+reflects your window.
+
+### Coordinates with attributes
+
+```go
+page, _ := ds.Coordinates(ctx, &topolab.CoordinatesOptions{Limit: 1000})
+fmt.Println(page.Returned, "of", page.Total) // from X-Returned-Count / X-Total-Count
+lon, lat, _ := page.Rows[0].Location.Point()
+```
+
+`Latitude`/`Longitude` are strings, exactly as the API sends them; use
+`Location` for numbers.
+
+### SQL across your datasets (Enterprise)
+
+```go
+res, _ := tl.SQL(ctx, "SELECT city, count(*) AS n FROM nl_domino_poi GROUP BY 1", &topolab.SQLOptions{MaxRows: 100})
+fmt.Println(res.Columns, res.RowCount, res.ElapsedMs)
+```
+
+Requires the `sql-access` entitlement (part of the Enterprise plan, not sold
+separately): a single read-only `SELECT`, restricted to datasets you licence.
 
 ### Browse the catalog
 
@@ -144,10 +212,11 @@ if errors.Is(err, topolab.ErrAddonRequired) {
 | Sentinel | Kind | When |
 |---|---|---|
 | `ErrAuthentication` | `authentication` | missing/invalid API key (401) |
-| `ErrAddonRequired` | `addon_required` | key lacks the add-on — `.Addon` names it (403) |
+| `ErrAddonRequired` | `addon_required` | key lacks the add-on — `.Addon` names the slug, e.g. `api-access` (403) |
 | `ErrAccessDenied` | `access_denied` | dataset not accessible to your org (403) |
 | `ErrInsufficientCredit` | `insufficient_credits` | `.Required` / `.Available` (402) |
-| `ErrNotFound` | `not_found` | unknown dataset or collection (404) |
+| `ErrNotFound` | `not_found` | unknown dataset, or no archive for that month (404) |
+| `ErrQueryTimeout` | `query_timeout` | SQL query outran the server statement timeout (408) |
 | `ErrValidation` | `validation` | bad parameters (400/4xx) |
 | `ErrRateLimit` | `rate_limit` | `.RetryAfter`, retried automatically (429) |
 | `ErrConfiguration` | `configuration` | client misconfiguration |

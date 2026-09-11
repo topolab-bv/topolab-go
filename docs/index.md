@@ -32,8 +32,9 @@ fc, err := tl.Dataset("nl-domino-poi").Items(context.Background(), &topolab.Item
 fmt.Printf("%d locations\n", len(fc.Features))
 ```
 
-Your API key carries your scope and add-ons — spatial queries need `GIS_ACCESS`,
-downloads need `API_ACCESS`, and data routes require an organization-scoped key.
+Your API key carries your scope and add-ons — spatial queries need the
+`gis-access` add-on, downloads need `api-access`, and data routes require an
+organization-scoped key.
 Pass `WithAPIKey` or set `TOPOLAB_API_KEY` (`topolab.New()` reads it).
 
 ## Staging vs production

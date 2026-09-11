@@ -37,3 +37,33 @@ func ExampleDataset_IterItems() {
 		_ = lat
 	}
 }
+
+// The backend integration loop: page every licensed dataset and pull its newest
+// monthly archive.
+func ExampleDatasetsService_IterOwned() {
+	tl, _ := topolab.New(topolab.WithAPIKey("tlb_prod_..."))
+	ctx := context.Background()
+	for d, err := range tl.Datasets.IterOwned(ctx, nil) {
+		if err != nil {
+			log.Fatal(err)
+		}
+		if d.LatestArchiveMonth == nil {
+			continue // no archive inside this plan's retention window
+		}
+		if err := tl.Dataset(d.Table).Archive(ctx, "archives/"+d.Table+".zip", "latest", "geojson"); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+// Run a read-only query across the datasets the organization licences.
+func ExampleClient_SQL() {
+	tl, _ := topolab.New(topolab.WithAPIKey("tlb_prod_..."))
+	res, err := tl.SQL(context.Background(),
+		"SELECT city, count(*) AS n FROM nl_domino_poi GROUP BY 1 ORDER BY n DESC",
+		&topolab.SQLOptions{MaxRows: 100})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%d rows in %.1fms\n", res.RowCount, res.ElapsedMs)
+}
