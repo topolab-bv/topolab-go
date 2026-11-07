@@ -29,7 +29,7 @@ case err != nil:
 | `ErrNotFound` | `not_found` | unknown dataset or collection, or no archive available for that month (404) |
 | `ErrQueryTimeout` | `query_timeout` | a SQL query outran the server statement timeout (408) |
 | `ErrValidation` | `validation` | invalid request parameters (400/4xx) |
-| `ErrRateLimit` | `rate_limit` | rate limited — `.RetryAfter`, retried automatically (429) |
+| `ErrRateLimit` | `rate_limit` | rate limited (`.Code == "RATE_LIMIT_EXCEEDED"`) or the key's usage quota is used up (`USAGE_QUOTA_EXCEEDED`) — `.RetryAfter`, retried automatically (429) |
 | `ErrConfiguration` | `configuration` | client misconfiguration (missing key, invalid base URL) |
 | `ErrServer` | `server` | upstream error (5xx), retried automatically |
 | `ErrConnection` | `connection` | network failure or context cancellation |
@@ -95,6 +95,8 @@ Codes this SDK's calls can return:
 | 400 | `SQL_DATA_ERROR` | `ErrValidation` | The SQL query raised a data error while evaluating a value, such as a bad cast. The message names the SQLSTATE. | none |
 | 400 | `MAX_NODES_EXCEEDED`, `MAX_DEPTH_EXCEEDED`, `MAX_ARRAY_LENGTH_EXCEEDED`, `MAX_KEYS_EXCEEDED` | `ErrValidation` | A JSON request body is larger or deeper than the server accepts. | none |
 | 400 | `PROTOTYPE_POLLUTION_KEY` | `ErrValidation` | A JSON request body contains a forbidden key (`__proto__`, `constructor`, `prototype`). | none |
+| 429 | `RATE_LIMIT_EXCEEDED` | `ErrRateLimit` | The API key passed its per-minute rate limit. The response also carries a `Retry-After` header. | `retryAfter` (seconds), `limit`, `remaining` (numbers), `resetAt` (ISO 8601 timestamp) |
+| 429 | `USAGE_QUOTA_EXCEEDED` | `ErrRateLimit` | The API key has used up its usage quota. Waiting does not help; `.RetryAfter` is 0. | `quota`, `used` (numbers) |
 
 Numeric codes that carry `Details`:
 
@@ -129,6 +131,10 @@ or unlicensed dataset on a data route.
 ## Retries
 
 Transient statuses (`429`, `500`, `502`, `503`, `504`) and network errors are
-retried with exponential backoff, honouring a `Retry-After` header when present.
+retried with exponential backoff. When the server says how long to wait, the SDK
+waits that long instead, reading in order the `Retry-After` header (seconds, or an
+HTTP date), `details.retryAfter`, and the top-level `retryAfter` that engines
+older than the `RATE_LIMIT_EXCEEDED` code send. `Error.RetryAfter` holds the same
+value.
 `WithMaxRetries` (default 3) is the number of retries **after** the first attempt.
 Context cancellation is never retried.

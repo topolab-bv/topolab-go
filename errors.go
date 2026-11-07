@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Kind classifies a Topolab API error. Match it with errors.Is against the
@@ -233,14 +235,40 @@ func errorFromResponse(status int, body errorBody, header http.Header) *Error {
 
 var reOrg = regexp.MustCompile(`(?i)organization`)
 
+// retryAfterSeconds reports how long the server asked the client to wait, in
+// seconds, or 0 when it did not say. The Retry-After header comes first (delay
+// seconds or an HTTP date, RFC 9110 section 10.2.3): the engine sends it on
+// every 429 that carries a wait, rounded up. Then details.retryAfter (engine
+// #650 and later), then a top-level retryAfter from older engines.
 func retryAfterSeconds(body errorBody, header http.Header) float64 {
-	if body.RetryAfter != nil {
+	if secs, ok := headerSeconds(header.Get("retry-after")); ok {
+		return secs
+	}
+	if v, ok := body.Details["retryAfter"].(float64); ok && validSeconds(v) {
+		return v
+	}
+	if body.RetryAfter != nil && validSeconds(*body.RetryAfter) {
 		return *body.RetryAfter
 	}
-	if h := header.Get("retry-after"); h != "" {
-		if v, err := strconv.ParseFloat(h, 64); err == nil {
-			return v
-		}
-	}
 	return 0
+}
+
+func validSeconds(v float64) bool {
+	return v >= 0 && !math.IsInf(v, 0) && !math.IsNaN(v)
+}
+
+// headerSeconds parses a Retry-After value; ok is false when it is absent or
+// neither a non-negative number nor an HTTP date.
+func headerSeconds(h string) (float64, bool) {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0, false
+	}
+	if v, err := strconv.ParseFloat(h, 64); err == nil {
+		return v, validSeconds(v)
+	}
+	if when, err := http.ParseTime(h); err == nil {
+		return math.Max(0, time.Until(when).Seconds()), true
+	}
+	return 0, false
 }

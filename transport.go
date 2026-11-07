@@ -148,14 +148,10 @@ func (t *transport) sleep(ctx context.Context, d time.Duration) bool {
 // parseRetryAfter reports how long the server asked us to wait before retrying,
 // or 0 if it did not say.
 //
-// The value arrives in the response BODY as `retryAfter`, not in a Retry-After
-// header — see the 429 shape in topolab-sdk-spec. This used to read the header
-// only, so the server's backoff was always discarded and every retry fell back
-// to exponential backoff. It also consumes and closes the body, which the retry
-// path would otherwise throw away unread.
-//
-// The header is still honoured as a fallback, since it is the HTTP-standard
-// spelling and costs nothing to support.
+// It reads the Retry-After header first, then details.retryAfter, then the
+// top-level retryAfter older engines sent in the body (see retryAfterSeconds).
+// It also consumes and closes the body, which the retry path would otherwise
+// throw away unread.
 func parseRetryAfter(resp *http.Response) time.Duration {
 	defer resp.Body.Close()
 
