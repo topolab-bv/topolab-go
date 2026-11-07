@@ -60,7 +60,16 @@
 //	if errors.As(err, &apiErr) && apiErr.Kind == topolab.KindAddonRequired {
 //		log.Printf("needs add-on: %s", apiErr.Addon)
 //	}
+//
+// [Error.StatusCode] is the HTTP status. [Error.Code] is the envelope's code: a
+// named [Code] such as "SPENDING_LIMIT_EXCEEDED" when the error has one,
+// otherwise the numeric status ("403"). [Error.Details] holds the envelope's
+// extra fields when present:
+//
+//	if errors.As(err, &apiErr) && apiErr.Code == "SPENDING_LIMIT_EXCEEDED" {
+//		log.Printf("monthly limit reached; resets at %v", apiErr.Details["periodEnd"])
+//	}
 package topolab
 
 // Version is the SDK version, sent in the User-Agent header.
-const Version = "0.1.0"
+const Version = "0.2.0"

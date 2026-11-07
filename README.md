@@ -223,6 +223,11 @@ if errors.Is(err, topolab.ErrAddonRequired) {
 | `ErrServer` | `server` | upstream error (5xx), retried |
 | `ErrConnection` | `connection` | network failure / cancellation |
 
+`StatusCode` is the HTTP status. `Code` is the envelope's code: a named code such
+as `"SPENDING_LIMIT_EXCEEDED"` when the error has one, otherwise the numeric
+status (`"403"`). `Details` holds extra fields when present. See
+[docs/errors.md](docs/errors.md) for the known codes.
+
 Transient statuses (429, 5xx) and network errors are retried with exponential
 backoff (`WithMaxRetries`, default 3 retries after the first attempt).
 
