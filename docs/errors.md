@@ -111,8 +111,9 @@ Other parts of the API use further codes, listed in the
 `REGENERATE_REQUIRED` (410) and `METADATA_NOT_READABLE` (400) from Data Studio,
 `SSO_REQUIRED` (403) and `SSO_CHECK_UNAVAILABLE` (503) from sign-in, and the
 order add-on and delivery-destination codes. The chat API reports a failed turn
-on its event stream with lower-snake codes such as `ai_busy`, `ai_interrupted`
-and `ai_cancelled`; this SDK does not call it.
+on its event stream with upper-snake codes such as `AI_BUSY`, `AI_INTERRUPTED`
+and `AI_CANCELLED`, the same codes Data Studio's HTTP errors send; this SDK does
+not call it.
 
 ## Add-on requirements
 

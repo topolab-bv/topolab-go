@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
 - `Retry-After` is also read as an HTTP date (RFC 9110). Negative or
   unparseable values are ignored.
 - `docs/errors.md` lists both 429 codes and their `Details`.
+- `docs/errors.md` names the chat API's stream error codes in upper-snake case
+  (`AI_BUSY`, `AI_INTERRUPTED`, `AI_CANCELLED`), matching the engine, which
+  renamed every chat error code from lower-snake.
 
 ## [0.2.0]
 
