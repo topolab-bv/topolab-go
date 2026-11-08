@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1]
+
+### Changed
+- 429 handling follows the engine's `RATE_LIMIT_EXCEEDED` and
+  `USAGE_QUOTA_EXCEEDED` codes. The wait is read from the `Retry-After` header,
+  then `details.retryAfter`, then the older top-level `retryAfter`; before, the
+  header came last and `details` was not read. `Error.RetryAfter` and the retry
+  delay use the same rule.
+- `Retry-After` is also read as an HTTP date (RFC 9110). Negative or
+  unparseable values are ignored.
+- `docs/errors.md` lists both 429 codes and their `Details`.
+
 ## [0.2.0]
 
 ### Changed
@@ -77,5 +89,6 @@ Initial release — the read-only v1 surface shared by the Topolab SDKs.
   `X-API-Key` auth; retry/backoff for 429/5xx/network.
 - SSRF base-URL validation (https-only, no userinfo, loopback http allowed).
 
+[0.2.1]: https://github.com/topolab-bv/topolab-go/releases/tag/v0.2.1
 [0.2.0]: https://github.com/topolab-bv/topolab-go/releases/tag/v0.2.0
 [0.1.0]: https://github.com/topolab-bv/topolab-go/releases/tag/v0.1.0
