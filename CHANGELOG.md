@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The staging base URL is now `https://api.topolab.dev` (was
+  `https://api-staging.topolab.nl`). `WithEnvironment("staging")` resolves to it.
+
 ## [0.2.1]
 
 ### Changed

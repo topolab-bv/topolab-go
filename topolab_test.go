@@ -44,7 +44,7 @@ func TestEnvironmentResolution(t *testing.T) {
 		want string
 	}{
 		{"default production", nil, "https://api.topolab.nl"},
-		{"staging", []topolab.Option{topolab.WithEnvironment("staging")}, "https://api-staging.topolab.nl"},
+		{"staging", []topolab.Option{topolab.WithEnvironment("staging")}, "https://api.topolab.dev"},
 		{"explicit base wins", []topolab.Option{topolab.WithEnvironment("staging"), topolab.WithBaseURL("https://self.example/api")}, "https://self.example/api"},
 	}
 	for _, tc := range cases {
