@@ -11,7 +11,7 @@ import (
 // Named API environments. Production ships as the default.
 const (
 	envProduction = "https://api.topolab.nl"
-	envStaging    = "https://api-staging.topolab.nl"
+	envStaging    = "https://api.topolab.dev"
 )
 
 var environments = map[string]string{

@@ -75,7 +75,7 @@ The client targets **production** (`https://api.topolab.nl`) by default. Point i
 at staging with `WithEnvironment`:
 
 ```go
-tl, _ := topolab.New(topolab.WithEnvironment("staging")) // https://api-staging.topolab.nl
+tl, _ := topolab.New(topolab.WithEnvironment("staging")) // https://api.topolab.dev
 ```
 
 Or set `TOPOLAB_ENV=staging`. An explicit `WithBaseURL` always wins. Precedence:
