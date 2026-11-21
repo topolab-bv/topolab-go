@@ -385,16 +385,15 @@ func TestCoordinatesReadsHeaders(t *testing.T) {
 		t.Fatalf("got %d rows", len(page.Rows))
 	}
 	row := page.Rows[0]
-	// latitude/longitude are JSON strings and must not be coerced.
-	if row.Latitude != "51.49638600" || row.Longitude != "3.65532100" {
-		t.Errorf("lat/lon = %q/%q, want the verbatim strings", row.Latitude, row.Longitude)
+	if row.Latitude == nil || *row.Latitude != 51.496386 || row.Longitude == nil || *row.Longitude != 3.655321 {
+		t.Errorf("lat/lon = %v/%v, want the numbers 51.496386/3.655321", row.Latitude, row.Longitude)
 	}
-	lon, lat, ok := row.Location.Point()
+	lon, lat, ok := row.Geometry.Point()
 	if !ok || lon != 3.655321 || lat != 51.496386 {
-		t.Errorf("location = %v,%v,%v", lon, lat, ok)
+		t.Errorf("geometry = %v,%v,%v", lon, lat, ok)
 	}
-	if row.Metadata["city"] != "Middelburg" {
-		t.Errorf("metadata city = %v", row.Metadata["city"])
+	if row.Columns["city"] != "Middelburg" {
+		t.Errorf("city = %v", row.Columns["city"])
 	}
 }
 

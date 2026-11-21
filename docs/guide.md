@@ -74,27 +74,42 @@ add-ons see everything. `Archives` already reflects your window, so it never
 lists a month that would 404. Listing archives is free; downloading one consumes
 credits and needs the `archived-data` add-on.
 
-### Coordinates
+### Coordinates as flat rows
 
-`Coordinates` returns rows with their attribute bag. The API answers with a bare
-JSON array and reports paging in the `X-Total-Count`, `X-Returned-Count` and
-`X-Offset` headers, which the SDK folds into the returned page:
+`Coordinates` returns one flat row per record, ordered by id. The API answers
+with a bare JSON array and reports paging in the `X-Total-Count`,
+`X-Returned-Count` and `X-Offset` headers, which the SDK folds into the returned
+page:
 
 ```go
 page, _ := ds.Coordinates(ctx, &topolab.CoordinatesOptions{Limit: 1000, Offset: 0})
 fmt.Println(page.Returned, "of", page.Total)
 
 row := page.Rows[0]
-lon, lat, _ := row.Location.Point() // numeric geometry
-_ = row.Latitude                    // "51.49638600" — the API sends strings
-_ = row.Metadata["city"]
+if row.Latitude != nil {
+    fmt.Println(*row.Latitude, *row.Longitude) // WGS 84 numbers
+}
+_ = row.GeoType          // "POINT"
+_ = row.Columns["city"]  // the dataset's own columns
+for _, key := range row.Keys {
+    v, _ := row.Value(key) // every key, in the API's column order
+    fmt.Println(key, v)
+}
 ```
 
-`Latitude` and `Longitude` are **strings**, exactly as the API sends them, so no
-precision is lost; use `Location` when you want numbers. Missing or unparseable
-headers are not an error: `Total`/`Returned` fall back to the number of rows
-decoded and `Offset` to `0`. `Limit` is 1–50000 (omit it to take the whole
-dataset in one response, capped at 50000 rows).
+Each row is the free sample's row for your tier plus the record's `id`. The keys
+every row carries are typed fields (`ID`, `Latitude`, `Longitude`, `GeoType`,
+`Geometry`); the dataset's own columns are in `Columns` and vary per dataset and
+tier. The dataset detail (`GET /v1/dataset/{table}`) describes them in its
+`columns` list. An empty value is `nil` and a list (`tags`, `category_path`) is
+a `[]any`. `Latitude` and `Longitude` are `nil` for a record with no position.
+The advanced columns (such as `phone`, `email`, `website`, `hours`, `services`)
+appear only if your organization holds the High-Value Data add-on for the
+dataset.
+
+Missing or unparseable headers are not an error: `Total`/`Returned` fall back to
+the number of rows decoded and `Offset` to `0`. `Limit` is 1-50000 (omit it to
+take the whole dataset in one response, capped at 50000 rows).
 
 ### SQL (Enterprise)
 

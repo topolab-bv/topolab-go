@@ -200,11 +200,12 @@ func (o *CoordinatesOptions) query() (url.Values, error) {
 	return q, nil
 }
 
-// Coordinates returns one page of coordinate rows with their attribute bags.
-// The response body is a bare JSON array and the paging facts arrive in the
-// X-Total-Count, X-Returned-Count and X-Offset headers, which CoordinatePage
-// carries alongside the rows. Missing or unparseable headers are not an error:
-// Total and Returned fall back to the number of rows decoded and Offset to 0.
+// Coordinates returns one page of the dataset's records as flat rows (see
+// [CoordinateRow]), ordered by id. The response body is a bare JSON array and
+// the paging facts arrive in the X-Total-Count, X-Returned-Count and X-Offset
+// headers, which CoordinatePage carries alongside the rows. Missing or
+// unparseable headers are not an error: Total and Returned fall back to the
+// number of rows decoded and Offset to 0.
 //
 // Requires the api-access add-on and consumes credits.
 func (d *Dataset) Coordinates(ctx context.Context, opts *CoordinatesOptions) (*CoordinatePage, error) {

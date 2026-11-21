@@ -129,16 +129,19 @@ are deliberately indistinguishable. Team plans see a trailing 12 months;
 Enterprise and full-history add-ons see everything, and `Archives` already
 reflects your window.
 
-### Coordinates with attributes
+### Coordinates as flat rows
 
 ```go
 page, _ := ds.Coordinates(ctx, &topolab.CoordinatesOptions{Limit: 1000})
 fmt.Println(page.Returned, "of", page.Total) // from X-Returned-Count / X-Total-Count
-lon, lat, _ := page.Rows[0].Location.Point()
+row := page.Rows[0]
+fmt.Println(*row.Latitude, *row.Longitude)    // numbers; nil for a record with no position
+fmt.Println(row.Columns["city"])              // the dataset's own columns
 ```
 
-`Latitude`/`Longitude` are strings, exactly as the API sends them; use
-`Location` for numbers.
+Each row is the free sample's row for your tier plus the record's `id`.
+`row.Keys` lists its keys in the API's column order and `row.Value(key)` reads
+any of them.
 
 ### SQL across your datasets (Enterprise)
 
