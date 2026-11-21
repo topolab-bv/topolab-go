@@ -7,8 +7,23 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking: coordinate rows are flat.** `Dataset.Coordinates` follows the
+  API's new row: each `CoordinateRow` is the free sample's row for your tier
+  plus the record's `ID`. `Latitude` and `Longitude` are `*float64` (were
+  decimal strings; nil for a record with no position), `GeoType` is the served
+  geometry's type (`"POINT"`) and `Geometry` is a GeoJSON Point (was
+  `Location`). The dataset's own columns are in `Columns` (was the `Metadata`
+  bag), `Keys` lists every key in the API's column order and `Value(key)` reads
+  any of them. A row marshals back to the same flat JSON object. Decimal text
+  for latitude and longitude, which older servers sent, still reads as a
+  number. Needs an API that serves flat rows; pre-1.0, so this is a minor
+  release.
 - The staging base URL is now `https://api.topolab.dev` (was
   `https://api-staging.topolab.nl`). `WithEnvironment("staging")` resolves to it.
+
+### Fixed
+- `Geometry.Point()` reported `0, 0, true` for a Point whose coordinates are
+  `[null, null]`; it now reports `ok == false`.
 
 ## [0.2.1]
 

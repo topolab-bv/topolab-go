@@ -39,16 +39,17 @@ type Geometry struct {
 }
 
 // Point decodes a Point geometry's coordinates into lon, lat. ok is false if the
-// geometry is not a Point or cannot be decoded.
+// geometry is not a Point, cannot be decoded, or has a null coordinate (a
+// coordinate row of a record with no position).
 func (g Geometry) Point() (lon, lat float64, ok bool) {
 	if g.Type != "Point" {
 		return 0, 0, false
 	}
-	var c []float64
-	if err := json.Unmarshal(g.Coordinates, &c); err != nil || len(c) < 2 {
+	var c []*float64
+	if err := json.Unmarshal(g.Coordinates, &c); err != nil || len(c) < 2 || c[0] == nil || c[1] == nil {
 		return 0, 0, false
 	}
-	return c[0], c[1], true
+	return *c[0], *c[1], true
 }
 
 // Feature is a GeoJSON Feature.
@@ -118,20 +119,6 @@ type Archive struct {
 	Month       string   `json:"month"`
 	Formats     []string `json:"formats"`
 	ArchiveDate string   `json:"archiveDate,omitempty"`
-}
-
-// CoordinateRow is one row of [Dataset.Coordinates]. Latitude and Longitude are
-// returned by the API as strings (fixed-precision decimals) and are kept as
-// strings so no precision is lost; use Location for numeric coordinates.
-// Metadata is the free-form attribute bag — advanced-tier fields (email, phone,
-// website, hours, services) appear only for organizations entitled to
-// high-value data for the dataset.
-type CoordinateRow struct {
-	ID        string         `json:"id"`
-	Location  Geometry       `json:"location"`
-	Latitude  string         `json:"latitude"`
-	Longitude string         `json:"longitude"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // CoordinatePage is one page of coordinate rows. The body of the response is a

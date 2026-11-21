@@ -59,10 +59,18 @@ func main() {
 		fmt.Printf("%s: archive %s -> %s\n", d.Table, *d.LatestArchiveMonth, out)
 	}
 
-	// Coordinates come back as a bare array; the paging facts are in headers.
+	// Coordinates come back as a bare array of flat rows; the paging facts are
+	// in headers.
 	coords, err := ds.Coordinates(ctx, &topolab.CoordinatesOptions{Limit: 100})
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("coordinates: %d of %d rows\n", coords.Returned, coords.Total)
+	if len(coords.Rows) > 0 {
+		row := coords.Rows[0]
+		if row.Latitude != nil && row.Longitude != nil {
+			fmt.Printf("first record %s at %.6f, %.6f (%d columns)\n",
+				row.ID, *row.Latitude, *row.Longitude, len(row.Keys))
+		}
+	}
 }

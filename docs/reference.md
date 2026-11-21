@@ -143,11 +143,27 @@ type CoordinatePage struct {
     Returned int // X-Returned-Count, falls back to len(Rows)
     Offset   int // X-Offset, falls back to 0
 }
+
+type CoordinateRow struct {
+    ID        string
+    Latitude  *float64       // WGS 84; nil for a record with no position
+    Longitude *float64
+    GeoType   string         // "POINT" on this route; "" when null
+    Geometry  Geometry       // GeoJSON Point, [lon, lat]
+    Columns   map[string]any // the dataset's own columns
+    Keys      []string       // every key, in the API's column order
+}
+
+func (r CoordinateRow) Value(key string) (any, bool) // any key, fixed or column
 ```
 
-`CoordinateRow.Latitude` and `.Longitude` are **strings** — the API sends
-fixed-precision decimals and the SDK does not coerce them; use
-`CoordinateRow.Location.Point()` for numeric coordinates.
+A `CoordinateRow` is one record as a flat row: the free sample's row for your
+tier plus the record's `id`. `Keys` reads `id` first, `latitude` and `longitude`
+directly after `location_name`, `geo_type` after the dataset's columns, and
+`geometry` last. `Columns` values decode as `encoding/json` decodes into `any`
+(numbers `float64`, lists `[]any`, null `nil`). Marshalling a row writes the same
+flat JSON object back, keys in that order. Latitude and longitude also read
+from decimal text, which older servers sent.
 
 ## Collections are addressed by slug
 
