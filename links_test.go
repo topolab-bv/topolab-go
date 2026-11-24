@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -671,4 +672,76 @@ func TestSampleReadsTheSampleRouteAndNeverTheLinkRoute(t *testing.T) {
 	if len(api.seen) != 1 || api.seen[0].route != sample {
 		t.Errorf("requests = %v", api.seen)
 	}
+}
+
+// --- the signed query never reaches an error ---------------------------------------------
+
+// lkNoQuery fails when err's text carries any part of the signed link's query.
+func lkNoQuery(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	for _, text := range []string{err.Error(), fmt.Sprintf("%v", err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err)} {
+		for _, leak := range []string{"X-Goog-Signature", "5f2d0c9e", "X-Goog-Credential", "?X-Goog"} {
+			if strings.Contains(text, leak) {
+				t.Fatalf("error carries the signed query (%q): %s", leak, text)
+			}
+		}
+	}
+}
+
+func TestLinkSignedURLConnectionErrorOmitsTheQuery(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": closedURL + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	ds, _ := lkDataset(t, api)
+
+	err := ds.Download(context.Background(), filepath.Join(t.TempDir(), "x.csv"), "csv")
+
+	lkNoQuery(t, err)
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Kind != KindConnection {
+		t.Fatalf("want a connection *Error, got %v", err)
+	}
+	// Still says where it failed: the host and the path, without the query.
+	if !strings.Contains(err.Error(), strings.TrimPrefix(closedURL, "http://")) || !strings.Contains(err.Error(), lkSignedP) {
+		t.Errorf("error does not name the host and path: %v", err)
+	}
+}
+
+func TestLinkSignedURLTimeoutOmitsTheQuery(t *testing.T) {
+	release := make(chan struct{})
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); storage.Close() })
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": storage.URL + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	c, err := New(WithAPIKey(lkKey), WithBaseURL(api.URL), WithTimeout(100*time.Millisecond), WithMaxRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.Dataset(lkTable).Download(context.Background(), filepath.Join(t.TempDir(), "x.csv"), "csv")
+
+	lkNoQuery(t, err)
+}
+
+func TestLinkSignedURLWithAnUnsupportedSchemeOmitsTheQuery(t *testing.T) {
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": "ftp://storage.example" + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	ds, _ := lkDataset(t, api)
+
+	err := ds.Download(context.Background(), filepath.Join(t.TempDir(), "x.csv"), "csv")
+
+	lkNoQuery(t, err)
 }

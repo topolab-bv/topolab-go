@@ -22,9 +22,13 @@ All notable changes to this project are documented here. The format follows
   403 and 5xx answers from the link route are returned, never a fallback.
 - An error while fetching the signed link has the kind of its status and a
   message that does not repeat the storage host's body.
+- A refused connection, a timeout or an unreadable link on the signed fetch
+  returns a `KindConnection` error that names the scheme, host and path and
+  never the link's query (its signature); Go's `*url.Error` text, which quotes
+  the whole URL, is not passed on.
 - `Sample` and `ToGeoJSON` are unchanged.
 - Tier words: the `CoordinateRow.Metadata` doc says "columns marked Advanced on
-  the dataset page" instead of naming high-value fields.
+  the dataset page" instead of naming high-value fields, and names no plan.
 - `docs/errors.md` lists `FILE_PREPARING`, `FILE_BUILD_FAILED` and
   `FILE_TOO_LARGE`.
 - The staging base URL is now `https://api.topolab.dev` (was

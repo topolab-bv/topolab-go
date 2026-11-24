@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -159,13 +160,63 @@ func (d *Dataset) fetchSignedToFile(ctx context.Context, rawURL, path string) er
 		return err
 	}
 	client := &http.Client{Transport: d.t.httpClient.Transport, Timeout: d.t.httpClient.Timeout}
-	resp, err := d.t.send(ctx, client, http.MethodGet, u, nil, func(req *http.Request) {
+	resp, err := d.t.send(ctx, client, http.MethodGet, u, nil, signedLinkFailure(u), func(req *http.Request) {
 		req.Header.Set("User-Agent", d.t.userAgent)
 	}, signedLinkError)
 	if err != nil {
 		return err
 	}
-	return writeAtomically(resp, path)
+	if err := writeAtomically(resp, path); err != nil {
+		var apiErr *Error
+		if errors.As(err, &apiErr) {
+			apiErr.Message = withoutSignedQuery(apiErr.Message, u)
+		}
+		return err
+	}
+	return nil
+}
+
+// signedLinkFailure describes an error raised before the storage host answered
+// (a refused connection, a timeout, an unreadable link) without the link's
+// query. The query is the link's signature: a working bearer link to the file
+// for ten minutes, so it never goes into an error, which programs log. Go's
+// *url.Error quotes the whole URL, so its message is rebuilt from the
+// operation, the link without its query, and the cause.
+func signedLinkFailure(rawURL string) func(error) string {
+	return func(err error) string {
+		msg := err.Error()
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			msg = urlErr.Op + " " + strconv.Quote(linkWithoutQuery(urlErr.URL)) + ": " + urlErr.Err.Error()
+		}
+		return withoutSignedQuery(msg, rawURL)
+	}
+}
+
+// linkWithoutQuery is a link without its query and fragment: the scheme, host
+// and path, which say where a fetch failed and authorise nothing.
+func linkWithoutQuery(raw string) string {
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		return raw[:i]
+	}
+	return raw
+}
+
+// withoutSignedQuery removes every copy of rawURL's query from msg, whatever
+// text it came in.
+func withoutSignedQuery(msg, rawURL string) string {
+	queries := []string{}
+	if _, q, ok := strings.Cut(rawURL, "?"); ok && q != "" {
+		queries = append(queries, q)
+		if parsed, err := url.Parse(rawURL); err == nil && parsed.RawQuery != "" && parsed.RawQuery != q {
+			queries = append(queries, parsed.RawQuery)
+		}
+	}
+	for _, q := range queries {
+		msg = strings.ReplaceAll(msg, "?"+q, "")
+		msg = strings.ReplaceAll(msg, q, "[query removed]")
+	}
+	return msg
 }
 
 // resolve turns a link into an absolute URL: an absolute link as it is, a

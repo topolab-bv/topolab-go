@@ -125,7 +125,7 @@ type Archive struct {
 // strings so no precision is lost; use Location for numeric coordinates.
 // Metadata is the free-form attribute bag — columns marked Advanced on the
 // dataset page appear only for organizations with Advanced columns for that
-// dataset (the Team and Enterprise plans).
+// dataset.
 type CoordinateRow struct {
 	ID        string         `json:"id"`
 	Location  Geometry       `json:"location"`
