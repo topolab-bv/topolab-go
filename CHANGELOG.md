@@ -25,7 +25,9 @@ All notable changes to this project are documented here. The format follows
 - A refused connection, a timeout or an unreadable link on the signed fetch
   returns a `KindConnection` error that names the scheme, host and path and
   never the link's query (its signature); Go's `*url.Error` text, which quotes
-  the whole URL, is not passed on.
+  the whole URL, is not passed on. The query of any other URL the error quotes
+  (a redirect from the storage host to a second signed link, quoted by a
+  custom RoundTripper) is removed too.
 - `Sample` and `ToGeoJSON` are unchanged.
 - Tier words: the `CoordinateRow.Metadata` doc says "columns marked Advanced on
   the dataset page" instead of naming high-value fields, and names no plan.

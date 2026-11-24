@@ -169,7 +169,7 @@ func (d *Dataset) fetchSignedToFile(ctx context.Context, rawURL, path string) er
 	if err := writeAtomically(resp, path); err != nil {
 		var apiErr *Error
 		if errors.As(err, &apiErr) {
-			apiErr.Message = withoutSignedQuery(apiErr.Message, u)
+			apiErr.Message = withoutURLQueries(withoutSignedQuery(apiErr.Message, u))
 		}
 		return err
 	}
@@ -189,7 +189,7 @@ func signedLinkFailure(rawURL string) func(error) string {
 		if errors.As(err, &urlErr) {
 			msg = urlErr.Op + " " + strconv.Quote(linkWithoutQuery(urlErr.URL)) + ": " + urlErr.Err.Error()
 		}
-		return withoutSignedQuery(msg, rawURL)
+		return withoutURLQueries(withoutSignedQuery(msg, rawURL))
 	}
 }
 
@@ -217,6 +217,39 @@ func withoutSignedQuery(msg, rawURL string) string {
 		msg = strings.ReplaceAll(msg, q, "[query removed]")
 	}
 	return msg
+}
+
+// withoutURLQueries removes the query of every absolute URL quoted in msg:
+// from the "?" up to the next space or quote, leaving punctuation that closes
+// the sentence (a ")" or ":" after the URL) in place. The storage host can
+// redirect to a second signed link, whose query is a signature too, and a
+// RoundTripper's own error can quote it.
+func withoutURLQueries(msg string) string {
+	isEnd := func(c byte) bool { return c <= ' ' || strings.IndexByte("\"'<>`", c) >= 0 }
+	var b strings.Builder
+	for i := 0; ; {
+		j := strings.Index(msg[i:], "://")
+		if j < 0 {
+			b.WriteString(msg[i:])
+			return b.String()
+		}
+		k := i + j + len("://")
+		for k < len(msg) && !isEnd(msg[k]) && msg[k] != '?' && msg[k] != '#' {
+			k++
+		}
+		b.WriteString(msg[i:k])
+		i = k
+		if k < len(msg) && msg[k] == '?' {
+			end := k
+			for end < len(msg) && !isEnd(msg[end]) {
+				end++
+			}
+			for end > k && strings.IndexByte(")]}>,;.:!", msg[end-1]) >= 0 {
+				end--
+			}
+			i = end
+		}
+	}
 }
 
 // resolve turns a link into an absolute URL: an absolute link as it is, a

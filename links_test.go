@@ -804,3 +804,42 @@ func TestLinkSignedURLRedirectToAnUnreachableHostOmitsBothQueries(t *testing.T) 
 		t.Fatalf("error carries the redirect's signature: %v", err)
 	}
 }
+
+// lkQuotingTransport serves the API through http.DefaultTransport, answers the
+// signed link with a redirect to a second signed link, and fails that one with
+// an error that quotes its URL, as some RoundTrippers (proxies, tracing
+// wrappers) do.
+type lkQuotingTransport struct{ mirror string }
+
+func (q lkQuotingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	switch {
+	case strings.Contains(req.URL.Path, lkSignedP):
+		return &http.Response{
+			StatusCode: http.StatusFound, Header: http.Header{"Location": {q.mirror}},
+			Body: io.NopCloser(strings.NewReader("")), Request: req,
+		}, nil
+	case req.URL.Host == "mirror.example":
+		return nil, fmt.Errorf("proxy refused %s", req.URL.String())
+	default:
+		return http.DefaultTransport.RoundTrip(req)
+	}
+}
+
+func TestLinkSignedURLErrorQuotingARedirectsSignedLinkOmitsItsQuery(t *testing.T) {
+	const second = "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=R2KEY%2F20261203&X-Amz-Signature=c0ffee77"
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": "https://storage.example" + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	hc := &http.Client{Transport: lkQuotingTransport{mirror: "https://mirror.example/x.csv?" + second}}
+	c, err := New(WithAPIKey(lkKey), WithBaseURL(api.URL), WithHTTPClient(hc), WithMaxRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.Dataset(lkTable).Download(context.Background(), filepath.Join(t.TempDir(), "x.csv"), "csv")
+
+	lkNoQueryAtAll(t, err, lkQuery, second)
+	if !strings.Contains(err.Error(), "mirror.example/x.csv") {
+		t.Errorf("error does not name the host and path: %v", err)
+	}
+}
