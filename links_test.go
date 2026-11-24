@@ -745,3 +745,62 @@ func TestLinkSignedURLWithAnUnsupportedSchemeOmitsTheQuery(t *testing.T) {
 
 	lkNoQuery(t, err)
 }
+
+// lkNoQueryAtAll fails when err's text carries any query parameter of either
+// signed link, or a "?" (no part of a query belongs in an error).
+func lkNoQueryAtAll(t *testing.T, err error, queries ...string) {
+	t.Helper()
+	lkNoQuery(t, err)
+	for _, text := range []string{err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err)} {
+		if strings.Contains(text, "?") {
+			t.Fatalf("error carries a query: %s", text)
+		}
+		for _, q := range queries {
+			for _, pair := range strings.Split(q, "&") {
+				if strings.Contains(text, pair) {
+					t.Fatalf("error carries %q of a signed query: %s", pair, text)
+				}
+			}
+		}
+	}
+}
+
+func TestArchiveSignedURLConnectionErrorOmitsTheQuery(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": closedURL + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	ds, _ := lkDataset(t, api)
+
+	err := ds.Archive(context.Background(), filepath.Join(t.TempDir(), "x.zip"), "2026-11", "csv")
+
+	lkNoQueryAtAll(t, err, lkQuery)
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Kind != KindConnection {
+		t.Fatalf("want a connection *Error, got %v", err)
+	}
+}
+
+func TestLinkSignedURLRedirectToAnUnreachableHostOmitsBothQueries(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	const second = "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=R2KEY%2F20261203&X-Amz-Signature=c0ffee77"
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, closedURL+"/mirror/x.csv?"+second, http.StatusFound)
+	}))
+	t.Cleanup(storage.Close)
+	api := newLkServer(t, map[string][]lkReply{lkLink: one(lkReply{status: 200, json: map[string]any{
+		"state": "ready", "url": storage.URL + lkSignedP + "?" + lkQuery, "build": lkBuild,
+	}})})
+	ds, _ := lkDataset(t, api)
+
+	err := ds.Download(context.Background(), filepath.Join(t.TempDir(), "x.csv"), "csv")
+
+	lkNoQueryAtAll(t, err, lkQuery, second)
+	if strings.Contains(err.Error(), "c0ffee77") || strings.Contains(err.Error(), "R2KEY") {
+		t.Fatalf("error carries the redirect's signature: %v", err)
+	}
+}
