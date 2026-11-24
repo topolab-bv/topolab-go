@@ -177,6 +177,34 @@ _ = ds.Download(ctx, "exports/dominos-nl.geojson", "geojson")
 `Download` creates the destination directory and streams to a temp file that is
 renamed atomically, so an interrupted transfer never leaves a truncated file.
 
+## How `Download` and `Archive` fetch a file
+
+Both ask the link route, `POST /v1/dataset/{table}/exports`, for a signed link
+to the file: `Download` asks for the current month's file as it is
+(`{"format": ..., "bundle": "file"}`), `Archive` for one month's zip
+(`{"format": ..., "month": ..., "bundle": "zip"}`). The link is valid for 10
+minutes and is fetched with a new `http.Client` (sharing only the RoundTripper
+you configured, so proxy and TLS settings still apply) and a request that
+carries no API key, so the key never reaches the storage host.
+
+- **Ready (200):** the file is fetched from the link and written to `path`.
+- **Preparing (202):** the SDK waits the `retryAfterSeconds` the server names
+  (at least 1 second; 5 seconds when it names none) and asks again. Waiting
+  costs no credits. After 30 minutes it stops and returns a `KindServer`
+  `*topolab.Error` with `Code == "FILE_PREPARING"` and the build id in
+  `Details["build"]`; the build keeps going on the server, so a later call
+  finds the file ready. Cancelling `ctx` also ends the wait.
+- **Failed:** the server answers 503 with `Code == "FILE_BUILD_FAILED"`. It is
+  retried like any 503 and then returned as a `KindServer` error.
+- **No link route (404 or 405):** a server that does not have the link route
+  yet gets today's request instead, `GET .../files/{format}` or
+  `GET .../archives/{month}/{format}`, with the same retries as before. This is
+  decided on every call; nothing is remembered between calls.
+- **Any other error** (402, 403, 5xx, ...) is returned as it was before; it
+  never falls back to the old route.
+
+`Sample` and `ToGeoJSON` are unchanged.
+
 ## Working with geometry
 
 Geometry coordinates are kept as raw JSON so any geometry type round-trips with no

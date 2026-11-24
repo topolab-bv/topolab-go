@@ -20,6 +20,11 @@ type transport struct {
 	maxRetries  int
 	userAgent   string
 	backoffBase time.Duration
+
+	// now and pollWait replace the clock and the wait between link-route
+	// polls; nil means time.Now and sleep. Only tests set them.
+	now      func() time.Time
+	pollWait func(ctx context.Context, d time.Duration) bool
 }
 
 // do performs a GET against path with query params, retrying transient failures.
@@ -38,7 +43,28 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
+	return t.send(ctx, t.httpClient, method, u, body, func(req *http.Request) {
+		req.Header.Set("X-API-Key", t.apiKey)
+		req.Header.Set("User-Agent", t.userAgent)
+		req.Header.Set("Accept", "application/json")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}, t.errorFrom)
+}
 
+// send performs one request through client, retrying transient failures with
+// the same rules for every caller. setHeaders writes the request's headers;
+// toError maps a final status >= 400 to a *Error and consumes the body. The
+// caller owns resp.Body on a nil error.
+func (t *transport) send(
+	ctx context.Context,
+	client *http.Client,
+	method, u string,
+	body []byte,
+	setHeaders func(*http.Request),
+	toError func(*http.Response) *Error,
+) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= t.maxRetries; attempt++ {
 		var payload io.Reader
@@ -49,14 +75,9 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 		if err != nil {
 			return nil, &Error{Kind: KindConfiguration, Message: err.Error()}
 		}
-		req.Header.Set("X-API-Key", t.apiKey)
-		req.Header.Set("User-Agent", t.userAgent)
-		req.Header.Set("Accept", "application/json")
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
+		setHeaders(req)
 
-		resp, err := t.httpClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			// Honour caller cancellation immediately — never retry it.
 			if ctx.Err() != nil {
@@ -80,7 +101,7 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			return nil, t.errorFrom(resp)
+			return nil, toError(resp)
 		}
 		return resp, nil
 	}

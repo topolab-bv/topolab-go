@@ -18,6 +18,19 @@ import (
 
 const apiKey = "tlb_test_key"
 
+// withoutLinkRoute answers POST .../exports as a server without the link route
+// does (staging on 2026-11-24), so Download and Archive fall back to the old
+// routes the wrapped handler pins. Every other request goes to h.
+func withoutLinkRoute(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/exports") {
+			writeJSON(w, 404, map[string]any{"code": 404, "message": "Cannot POST " + r.URL.Path})
+			return
+		}
+		h(w, r)
+	}
+}
+
 func newClient(t *testing.T, srv *httptest.Server) *topolab.Client {
 	t.Helper()
 	c, err := topolab.New(topolab.WithAPIKey(apiKey), topolab.WithBaseURL(srv.URL))
@@ -351,7 +364,7 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestDownloadStreamsToDisk(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withoutLinkRoute(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/geo+json")
 		_ = json.NewEncoder(w).Encode(itemsFixture(2, 2))
 	}))

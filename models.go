@@ -123,9 +123,9 @@ type Archive struct {
 // CoordinateRow is one row of [Dataset.Coordinates]. Latitude and Longitude are
 // returned by the API as strings (fixed-precision decimals) and are kept as
 // strings so no precision is lost; use Location for numeric coordinates.
-// Metadata is the free-form attribute bag — advanced-tier fields (email, phone,
-// website, hours, services) appear only for organizations entitled to
-// high-value data for the dataset.
+// Metadata is the free-form attribute bag — columns marked Advanced on the
+// dataset page appear only for organizations with Advanced columns for that
+// dataset (the Team and Enterprise plans).
 type CoordinateRow struct {
 	ID        string         `json:"id"`
 	Location  Geometry       `json:"location"`
