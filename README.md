@@ -193,6 +193,11 @@ _ = tl.Dataset("nl-domino-poi").Download(ctx, "dominos-nl.geojson", "geojson")
 `Download` creates the destination directory, streams to a temp file, and renames
 atomically — an interrupted transfer never leaves a truncated file.
 
+`Download` and `Archive` fetch the file through a 10-minute signed link that is
+requested with your key and fetched without it. On a server without the link
+route they use the old routes, decided on every call. See
+[the guide](docs/guide.md#how-download-and-archive-fetch-a-file).
+
 ## Errors
 
 Every API failure is a `*topolab.Error` carrying a `Kind`. Match a category with

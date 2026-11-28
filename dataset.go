@@ -66,10 +66,19 @@ func (d *Dataset) ToGeoJSON(ctx context.Context) (*FeatureCollection, error) {
 	return &fc, nil
 }
 
-// Download streams a bulk export to path (format one of csv, json, geojson,
-// kml, shp; empty defaults to geojson). The destination directory is created if
-// needed; the download streams to a temp file and is renamed atomically, so an
-// interrupted transfer never leaves a truncated file at path.
+// Download streams the current month's file to path (format one of csv, json,
+// geojson, kml, shp; empty defaults to geojson). The destination directory is
+// created if needed; the download streams to a temp file and is renamed
+// atomically, so an interrupted transfer never leaves a truncated file at path.
+//
+// Download asks the link route (POST /v1/dataset/{table}/exports) for a signed
+// link to the file and fetches it with a new http.Client and no API key. While
+// the file is being prepared it waits the retryAfterSeconds the server names
+// (at least 1 second, 5 when it names none) and asks again, for at most 30
+// minutes, then returns a [KindServer] *[Error] with Code "FILE_PREPARING"; ctx
+// ends the wait sooner. A server without the link route (404 or 405) gets
+// today's GET .../files/{format} instead, decided on every call. Other errors
+// (402, 403, 5xx) are returned.
 func (d *Dataset) Download(ctx context.Context, path, format string) error {
 	if format == "" {
 		format = "geojson"
@@ -77,7 +86,8 @@ func (d *Dataset) Download(ctx context.Context, path, format string) error {
 	if !bulkFormats[format] {
 		return &Error{Kind: KindValidation, Message: "download format must be one of csv, json, geojson, kml, shp"}
 	}
-	return d.streamToFile(ctx, "/v1/dataset/"+d.Slug+"/files/"+format, path)
+	return d.fetchViaLink(ctx, linkRequest{Format: format, Bundle: "file"},
+		"/v1/dataset/"+d.Slug+"/files/"+format, path)
 }
 
 // streamToFile GETs apiPath and streams the response body to path. The
@@ -85,15 +95,30 @@ func (d *Dataset) Download(ctx context.Context, path, format string) error {
 // that is renamed atomically, so an interrupted transfer never leaves a
 // truncated file at path.
 func (d *Dataset) streamToFile(ctx context.Context, apiPath, path string) error {
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return &Error{Kind: KindConnection, Message: err.Error()}
-		}
+	if err := ensureDir(path); err != nil {
+		return err
 	}
 	resp, err := d.t.do(ctx, apiPath, nil)
 	if err != nil {
 		return err
 	}
+	return writeAtomically(resp, path)
+}
+
+// ensureDir creates the destination directory of path if needed.
+func ensureDir(path string) error {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return &Error{Kind: KindConnection, Message: err.Error()}
+		}
+	}
+	return nil
+}
+
+// writeAtomically streams resp's body to a temp file next to path and renames
+// it into place, so an interrupted transfer never leaves a truncated file at
+// path. It closes the body.
+func writeAtomically(resp *http.Response, path string) error {
 	defer resp.Body.Close()
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".topolab-*.part")
@@ -141,7 +166,10 @@ func (d *Dataset) Archives(ctx context.Context) ([]Archive, error) {
 // months that have not started are deliberately indistinguishable from one
 // another.
 //
-// Like Download, the archive streams to a temp file and is renamed atomically.
+// Like Download, the archive comes through the link route (a signed link
+// fetched without the API key, waiting while the file is prepared, and today's
+// GET .../archives/{month}/{format} on a server without the link route), and
+// streams to a temp file that is renamed atomically.
 func (d *Dataset) Archive(ctx context.Context, path, month, format string) error {
 	if format == "" {
 		format = "geojson"
@@ -153,7 +181,8 @@ func (d *Dataset) Archive(ctx context.Context, path, month, format string) error
 	if err != nil {
 		return err
 	}
-	return d.streamToFile(ctx, "/v1/dataset/"+d.Slug+"/archives/"+m+"/"+format, path)
+	return d.fetchViaLink(ctx, linkRequest{Format: format, Month: m, Bundle: "zip"},
+		"/v1/dataset/"+d.Slug+"/archives/"+m+"/"+format, path)
 }
 
 // normaliseArchiveMonth validates a month and returns its wire form. It accepts

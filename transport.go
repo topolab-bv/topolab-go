@@ -20,6 +20,11 @@ type transport struct {
 	maxRetries  int
 	userAgent   string
 	backoffBase time.Duration
+
+	// now and pollWait replace the clock and the wait between link-route
+	// polls; nil means time.Now and sleep. Only tests set them.
+	now      func() time.Time
+	pollWait func(ctx context.Context, d time.Duration) bool
 }
 
 // do performs a GET against path with query params, retrying transient failures.
@@ -38,7 +43,31 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
+	return t.send(ctx, t.httpClient, method, u, body, errorText, func(req *http.Request) {
+		req.Header.Set("X-API-Key", t.apiKey)
+		req.Header.Set("User-Agent", t.userAgent)
+		req.Header.Set("Accept", "application/json")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}, t.errorFrom)
+}
 
+// send performs one request through client, retrying transient failures with
+// the same rules for every caller. describe writes the message of an error
+// raised before any answer (an unreadable URL, a refused connection, a
+// timeout); setHeaders writes the request's headers; toError maps a final
+// status >= 400 to a *Error and consumes the body. The caller owns resp.Body on
+// a nil error.
+func (t *transport) send(
+	ctx context.Context,
+	client *http.Client,
+	method, u string,
+	body []byte,
+	describe func(error) string,
+	setHeaders func(*http.Request),
+	toError func(*http.Response) *Error,
+) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= t.maxRetries; attempt++ {
 		var payload io.Reader
@@ -47,22 +76,17 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 		}
 		req, err := http.NewRequestWithContext(ctx, method, u, payload)
 		if err != nil {
-			return nil, &Error{Kind: KindConfiguration, Message: err.Error()}
+			return nil, &Error{Kind: KindConfiguration, Message: describe(err)}
 		}
-		req.Header.Set("X-API-Key", t.apiKey)
-		req.Header.Set("User-Agent", t.userAgent)
-		req.Header.Set("Accept", "application/json")
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
+		setHeaders(req)
 
-		resp, err := t.httpClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			// Honour caller cancellation immediately — never retry it.
 			if ctx.Err() != nil {
 				return nil, &Error{Kind: KindConnection, Message: ctx.Err().Error()}
 			}
-			lastErr = &Error{Kind: KindConnection, Message: err.Error()}
+			lastErr = &Error{Kind: KindConnection, Message: describe(err)}
 			if attempt >= t.maxRetries {
 				return nil, lastErr
 			}
@@ -80,12 +104,16 @@ func (t *transport) doRequest(ctx context.Context, method, path string, query ur
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			return nil, t.errorFrom(resp)
+			return nil, toError(resp)
 		}
 		return resp, nil
 	}
 	return nil, lastErr
 }
+
+// errorText is the message of an error on an API request: the error's own
+// text. The API's URLs carry no secret (the key travels in a header).
+func errorText(err error) string { return err.Error() }
 
 // getJSON performs a GET and decodes the JSON body into v.
 func (t *transport) getJSON(ctx context.Context, path string, query url.Values, v any) error {

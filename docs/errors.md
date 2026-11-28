@@ -97,6 +97,9 @@ Codes this SDK's calls can return:
 | 400 | `PROTOTYPE_POLLUTION_KEY` | `ErrValidation` | A JSON request body contains a forbidden key (`__proto__`, `constructor`, `prototype`). | none |
 | 429 | `RATE_LIMIT_EXCEEDED` | `ErrRateLimit` | The API key passed its per-minute rate limit. The response also carries a `Retry-After` header. | `retryAfter` (seconds), `limit`, `remaining` (numbers), `resetAt` (ISO 8601 timestamp) |
 | 429 | `USAGE_QUOTA_EXCEEDED` | `ErrRateLimit` | The API key has used up its usage quota. Waiting does not help; `.RetryAfter` is 0. | `quota`, `used` (numbers) |
+| 503 | `FILE_PREPARING` | `ErrServer` | The file is being built. The old download routes answer it with a `Retry-After` header and the SDK retries it; `Download` and `Archive` also return it, with status 202, when a file is still being prepared after 30 minutes of waiting on the link route. | `retryAfter` (seconds), `linkRoute` (path); from the SDK's own wait: `retryAfter`, `build` |
+| 503 | `FILE_BUILD_FAILED` | `ErrServer` | The file could not be built. Retried like any 503, then returned. | `retryAfter`, `linkRoute` |
+| 413 | `FILE_TOO_LARGE` | `ErrValidation` | The file is too large for the old current-month route (`GET .../files/{format}`); the link route, which `Download` uses, serves it. | `linkRoute` (path) |
 
 Numeric codes that carry `Details`:
 

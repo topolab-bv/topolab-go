@@ -32,7 +32,7 @@ func ownedFixture(t *testing.T, name string) []byte {
 func serveFixture(t *testing.T, status int, name string) *httptest.Server {
 	t.Helper()
 	body := ownedFixture(t, name)
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(withoutLinkRoute(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = w.Write(body)
@@ -280,7 +280,7 @@ func TestArchiveMonthValidation(t *testing.T) {
 
 	for _, tc := range valid {
 		var gotPath string
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(withoutLinkRoute(func(w http.ResponseWriter, r *http.Request) {
 			gotPath = r.URL.Path
 			_, _ = w.Write([]byte("zip-bytes"))
 		}))
@@ -311,7 +311,7 @@ func TestArchiveMonthValidation(t *testing.T) {
 }
 
 func TestArchiveStreamsToDisk(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withoutLinkRoute(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
 		_, _ = w.Write([]byte("PK\x03\x04archive"))
 	}))

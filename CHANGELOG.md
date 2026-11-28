@@ -5,8 +5,38 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
-
 ### Changed
+- `Dataset.Download` writes the build's documents the link route names beside
+  the file: `<path>.columns.json` and `<path>.notices/<name>`, fetched like the
+  file, without `X-API-Key`. A notice whose name is not a plain file name is
+  skipped; a document that cannot be fetched fails the call. `Archive` writes
+  the zip only, which holds them.
+- `Download` and `Archive` fetch files through the link route,
+  `POST /v1/dataset/{table}/exports`: `Download` asks for the current month's
+  file (`bundle: "file"`), `Archive` for one month's zip (`month`,
+  `bundle: "zip"`). A 200 names a 10-minute signed link, fetched with a new
+  `http.Client` and a request that carries no `X-API-Key`. A 202 means the file
+  is being prepared: the SDK waits `retryAfterSeconds` (at least 1 second, 5
+  when absent) and asks again, for at most 30 minutes, then returns a
+  `KindServer` error with `Code == "FILE_PREPARING"` and `Details["build"]`.
+  Cancelling `ctx` also ends the wait.
+- A 404 or 405 from the link route (a server without it) falls back, on that
+  call only, to the old route (`GET .../files/{format}` or
+  `GET .../archives/{month}/{format}`) with today's behaviour and retries. 402,
+  403 and 5xx answers from the link route are returned, never a fallback.
+- An error while fetching the signed link has the kind of its status and a
+  message that does not repeat the storage host's body.
+- A refused connection, a timeout or an unreadable link on the signed fetch
+  returns a `KindConnection` error that names the scheme, host and path and
+  never the link's query (its signature); Go's `*url.Error` text, which quotes
+  the whole URL, is not passed on. The query of any other URL the error quotes
+  (a redirect from the storage host to a second signed link, quoted by a
+  custom RoundTripper) is removed too.
+- `Sample` and `ToGeoJSON` are unchanged.
+- Tier words: the `CoordinateRow.Metadata` doc says "columns marked Advanced on
+  the dataset page" instead of naming high-value fields, and names no plan.
+- `docs/errors.md` lists `FILE_PREPARING`, `FILE_BUILD_FAILED` and
+  `FILE_TOO_LARGE`.
 - The staging base URL is now `https://api.topolab.dev` (was
   `https://api-staging.topolab.nl`). `WithEnvironment("staging")` resolves to it.
 

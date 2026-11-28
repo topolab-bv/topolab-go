@@ -41,12 +41,12 @@ Base-URL precedence: `WithBaseURL` → `WithEnvironment` → `TOPOLAB_BASE_URL` 
 | `Metadata(ctx, locale)` | `*DatasetSummary, error` |
 | `Sample(ctx, format)` | `[]byte, error` — `csv`/`json`/`geojson`/`kml` |
 | `ToGeoJSON(ctx)` | `*FeatureCollection, error` (requires `api-access`) |
-| `Download(ctx, path, format)` | `error` — `csv`/`json`/`geojson`/`kml`/`shp` |
+| `Download(ctx, path, format)` | `error` — `csv`/`json`/`geojson`/`kml`/`shp`; through a signed link (old route on a server without the link route) |
 | `Items(ctx, *ItemsOptions)` | `*FeatureCollection, error` |
 | `IterItems(ctx, *IterOptions)` | `iter.Seq2[*Feature, error]` |
 | `ItemsAll(ctx, *IterOptions)` | `*FeatureCollection, error` (concurrent) |
 | `Archives(ctx)` | `[]Archive, error` — newest month first |
-| `Archive(ctx, path, month, format)` | `error` — `latest`/`YYYY-MM`/`YYYY-MM-DD` |
+| `Archive(ctx, path, month, format)` | `error` — `latest`/`YYYY-MM`/`YYYY-MM-DD`; a zip through a signed link (old route on a server without the link route) |
 | `Coordinates(ctx, *CoordinatesOptions)` | `*CoordinatePage, error` |
 
 ### `ItemsOptions`
