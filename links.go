@@ -12,6 +12,10 @@ package topolab
 // Nothing is remembered between calls, so a program keeps working while
 // servers gain or lose the route. Every other error (402, 403, 5xx, ...) is
 // returned.
+//
+// A 200 also names the build's documents (its columns.json and each notice
+// file). A plain file (bundle "file") gets them beside it, fetched the same
+// way: path+".columns.json" and path+".notices/<name>". A zip holds them.
 
 import (
 	"context"
@@ -21,6 +25,8 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -50,13 +56,48 @@ type linkRequest struct {
 
 // linkAnswer is a 200 or 202 from the link route.
 type linkAnswer struct {
-	State             string   `json:"state"`
-	URL               string   `json:"url"`
-	Build             any      `json:"build"`
-	RetryAfterSeconds *float64 `json:"retryAfterSeconds"`
+	State             string         `json:"state"`
+	URL               string         `json:"url"`
+	Build             any            `json:"build"`
+	RetryAfterSeconds *float64       `json:"retryAfterSeconds"`
+	Documents         *linkDocuments `json:"documents"`
 
 	status int
 	wait   time.Duration
+}
+
+// linkDocuments are the build's documents a 200 names: signed links to its
+// columns.json and to each notice file (licences and attributions the data
+// needs).
+type linkDocuments struct {
+	Columns *string `json:"columns"`
+	Notices []struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"notices"`
+}
+
+// noticeName is a notice name the SDK writes: a plain file name, never a path.
+var noticeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// besideFile lists the documents to write beside a plain file at path, as
+// (signed link, destination) pairs: path+".columns.json" and
+// path+".notices/<name>". A notice whose name is not a plain file name is
+// skipped.
+func (a *linkAnswer) besideFile(path string) [][2]string {
+	if a.Documents == nil {
+		return nil
+	}
+	var out [][2]string
+	if a.Documents.Columns != nil && *a.Documents.Columns != "" {
+		out = append(out, [2]string{*a.Documents.Columns, path + ".columns.json"})
+	}
+	for _, notice := range a.Documents.Notices {
+		if noticeName.MatchString(notice.Name) && notice.URL != "" {
+			out = append(out, [2]string{notice.URL, filepath.Join(path+".notices", notice.Name)})
+		}
+	}
+	return out
 }
 
 // fetchViaLink writes the file the link route names to path, or the old
@@ -81,7 +122,20 @@ func (d *Dataset) fetchViaLink(ctx context.Context, body linkRequest, fallbackPa
 			return err
 		}
 		if answer.status == http.StatusOK && answer.State == "ready" {
-			return d.fetchSignedToFile(ctx, answer.URL, path)
+			if err := d.fetchSignedToFile(ctx, answer.URL, path); err != nil {
+				return err
+			}
+			// A plain file gets the build's documents beside it, fetched the
+			// same way; a zip holds them itself. One that cannot be fetched
+			// fails the call: the notices carry the data's licences.
+			if body.Bundle == "file" {
+				for _, document := range answer.besideFile(path) {
+					if err := d.fetchSignedToFile(ctx, document[0], document[1]); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
 		}
 		if d.t.clock().Sub(started)+answer.wait > maxLinkWait {
 			return stillPreparing(answer)

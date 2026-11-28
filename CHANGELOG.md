@@ -5,8 +5,12 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
-
 ### Changed
+- `Dataset.Download` writes the build's documents the link route names beside
+  the file: `<path>.columns.json` and `<path>.notices/<name>`, fetched like the
+  file, without `X-API-Key`. A notice whose name is not a plain file name is
+  skipped; a document that cannot be fetched fails the call. `Archive` writes
+  the zip only, which holds them.
 - `Download` and `Archive` fetch files through the link route,
   `POST /v1/dataset/{table}/exports`: `Download` asks for the current month's
   file (`bundle: "file"`), `Archive` for one month's zip (`month`,
